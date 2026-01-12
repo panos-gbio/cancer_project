@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+SALMON_INDEX="${HOME}"/cancer_project/ngs_preprocess/reference/hg38_salmon
+TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/time.log
+INPUT="${HOME}"/cancer_project/ngs_preprocess/2_trimmed
+OUT="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
+
+if [[ ! -d "${SALMON_INDEX}" ]]; then
+    echo "Salmon index directory does not exist: ${SALMON_INDEX}"
+    exit 1
+fi
+
+
+# run the same sample mutiple times in different threads
+for SALMON_THREADS in {8,8,8,8,11,12,12,12,16,16,16,20,20,20,22,22,22}; do
+
+    # a warm-up run and then triplicate runs 
+
+    # run the sample ~30 million paired-end reads
+    f1="${INPUT}/SRR15852393_trimmed_1.fastq.gz"
+    f2="${f1/_1.fastq.gz/_2.fastq.gz}"
+    BASENAME1="$(basename "${f1}" "_trimmed_1.fastq.gz")"
+
+    if [[ -f "${f2}" ]]; then
+        echo "Running Salmon mapping for sample: ${BASENAME1} with ${SALMON_THREADS} threads"
+        SECONDS=0
+        
+        # delete and create output folder - ignore if it does not exist
+        rm -rf -- "${OUT}"/"${BASENAME1}_salmon_test"
+        mkdir -p -- "${OUT}"/"${BASENAME1}_salmon_test"
+        salmon quant \
+            -i "${SALMON_INDEX}" \
+            -l A \
+            -1 "${f1}" \
+            -2 "${f2}" \
+            -p "${SALMON_THREADS}" \
+            --validateMappings --gcBias \
+            --numBootstraps 30 \
+            -o "${OUT}/${BASENAME1}_salmon_test"
+        
+        if [[ $? -eq 0 ]]; then
+            echo "$(date) | Salmon-30m | ${SALMON_THREADS} | $SECONDS seconds" >> "${TIME_OUT}"
+        else
+            echo "$(date) | Salmon-30m | ${SALMON_THREADS} | $SECONDS seconds FAILED" >> "${TIME_OUT}"
+
+        fi
+    else
+        exit 1
+    fi
+
+    # wait for a minute before next run
+    sleep 60 
+
+# delete once all done 
+rm -rf -- "${OUT}"/"${BASENAME1}_salmon_test"
+done

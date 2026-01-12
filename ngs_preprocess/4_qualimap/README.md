@@ -1,0 +1,1 @@
+## This direcory contain the quality control reports of the FASTQ files using QualiMap, QUALISEQ, and etc 

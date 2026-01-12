@@ -1,0 +1,2 @@
+## This directory contains the output of STAR-RSEM quantification of the RNA-seq data.
+The output files include the files that contain transcript level as well as the gene-level quantification results in the form of count matrices and TPM values. It will be patient-wise directories containing the respective output files.

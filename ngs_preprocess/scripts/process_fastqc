@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+INPUT=$HOME/cancer_project/ngs_preprocess/0_raw
+OUT=$HOME/cancer_project/ngs_preprocess/1_fastq/
+MAX_FILES=10
+
+# for fastq in "${INPUT}/*.fastq.gz"; do
+#      fastqc \
+#      -o "${OUT}" \
+#      $fastq &
+#      jobs -pr | wc -l
+# done
+
+# wait
+
+# run multiqc to aggregate the fastqc reports
+multiqc \
+-o "${OUT}"/pre_trimming_qc \
+"${OUT}"/*.zip 
+

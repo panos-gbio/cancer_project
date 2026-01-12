@@ -1,0 +1,1 @@
+## The direcory where raw FASTQ files are soft-linked after fetching the SRA and downloading them into the SRA directory

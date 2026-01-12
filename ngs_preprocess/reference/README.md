@@ -1,0 +1,2 @@
+## This direcory contains refrence genome files including the FASTA file and the GTF annotation file.
+Also it includes transcriptome annotation files used for Salmon quantification. Furthermore, the index reference of STAR and Salmon are included in this directory. 

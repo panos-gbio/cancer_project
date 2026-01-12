@@ -1,0 +1,1 @@
+## Directory where FASTQC and MULTIQC results are stored before and after trimming with FastP or other tools 

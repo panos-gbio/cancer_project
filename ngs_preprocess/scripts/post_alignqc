@@ -1,0 +1,12 @@
+#!usr/bin/env bash 
+MAP_DIR="${HOME}"/cancer_project/ngs_preprocess/3_mapping
+SALMON_DIR="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
+QC_DIR="${HOME}"/cancer_project/ngs_preprocess/4_qualimap
+
+# MultiQC runs recursively through a directory with STAR results using -m star
+multiqc "${MAP_DIR}"/ -m star -0 "${QC_DIR}"/multiqc_star
+
+# For Salmon results 
+multiqc "${SALMON_DIR}"/ -m salmon -0 "${QC_DIR}"/multiqc_salmon
+
+# RSeQC runs 

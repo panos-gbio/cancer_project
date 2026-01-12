@@ -1,0 +1,103 @@
+#!/usr/bin/env bash 
+
+# get argument from command line for run mode: parallel or single - do not run if not provided
+
+
+
+# set parameters for FASTQ and quant storing
+SALMON_INDEX="${HOME}"/cancer_project/ngs_preprocess/reference/hg38_salmon
+TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/time.log
+INPUT="${HOME}"/cancer_project/ngs_preprocess/2_trimmed
+OUT="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
+SALMON_THREADS=11
+
+# rewrite or create new file for salmon pairs
+> "${OUT}"/pairs_salmon.tsv 
+> "${OUT}"/missing_salmon.log
+
+# write a tsv file using 
+
+for f1 in "${INPUT}"/*_trimmed_1.fastq.gz; do
+    
+    f2="${f1/_trimmed_1./_trimmed_2.}"
+    
+    # check if f2 exists in INPUT directory - i am not in the input dire
+    if [[ -f "${f2}" ]]; then
+        BASENAME1=$(basename "${f1}" "_trimmed_1.fastq.gz")
+        BASENAME2=$(basename "${f2}" "_trimmed_2.fastq.gz")
+
+        if [[ "${BASENAME1}" == "${BASENAME2}" ]]; then
+            echo "Found pair-end reads for sample: ${BASENAME1}"
+            printf '%s\t%s\t%s\n' "${BASENAME1}" "${f1}" "${f2}" >> "${OUT}/pairs_salmon.tsv"
+        else
+            echo "Mismatch in pair names: ${BASENAME1} and ${BASENAME2}"
+            exit 1
+        fi 
+    
+    else 
+        echo "The file ${f1} is missing its pair file."
+        echo "Missing ${f1}" >> "${OUT}/missing_salmon.log"
+    fi
+done
+
+echo "Total number of paired-end samples: $(cat ${OUT}/pairs_salmon.tsv | wc -l)"
+
+test_function() {
+
+    local f1=$1
+    local f2=$2
+    echo "Processing $(basename "${f1}" _trimmed_1.fastq.gz)"
+    sleep 2
+    echo "Finished"
+
+} 
+
+salmon_quant() {
+
+    # function to run salmon quantification on paired end reads
+    local f1=$1
+    local f2=$2
+    local BASENAME=$(basename "${f1}" "_trimmed_1.fastq.gz")
+
+    salmon quant \
+    -i "${SALMON_INDEX}" \
+    -l A \
+    -1 "${f1}" \
+    -2 "${f2}" \
+    -p "${SALMON_THREADS}" \
+    --validateMappings --gcBias \
+    --numBootstraps 30 \
+    -o "${OUT}/${BASENAME}_salmon"
+
+    echo "Completed salmon quantification for ${BASENAME}"
+}
+
+# export functions for GNU and variables for functions
+export -f test_function
+export -f salmon_quant
+export INPUT
+export OUT
+export SALMON_THREADS
+export SALMON_INDEX
+export TIME_OUT 
+
+
+# test the pairs salmon.tsv file with parallel before running salmon
+parallel --colsep '\t' --jobs 3 --linebuffer \
+--tagstring 'Job{#}-{1}' \
+test_function {2} {3} \
+:::: "${OUT}/pairs_salmon.tsv"
+
+
+clear
+echo "Starting parallel salmon quantification now..."
+SECONDS=0
+
+# run parallel salmon quantification
+parallel --colsep '\t' --jobs 2 --linebuffer \
+salmon_quant {2} {3} \
+:::: "${OUT}/pairs_salmon.tsv"
+
+echo "All salmon quantifications are done."
+elapsed=$SECONDS
+echo "$(date) | all samples 2x11 | $elapsed seconds" >> "${TIME_OUT}"

@@ -1,0 +1,47 @@
+# dont add the ngs_preprocess directories
+ngs_preprocess/0_raw/*
+ngs_preprocess/1_fastqc/*
+ngs_preprocess/2_trimmed/*
+ngs_preprocess/3_mapping/*
+ngs_preprocess/4_qualimap/*
+ngs_preprocess/5a_salmonout/*
+ngs_preprocess/5b_starout/*
+ngs_preprocess/6_final/*
+ngs_preprocess/reference/*
+ngs_preprocess/sra/*
+ngs_preprocess/sra/scripts/exploratory/*
+
+
+# from above make exception for README files
+!ngs_preprocess/0_raw/README.md
+!ngs_preprocess/1_fastqc/README.md
+!ngs_preprocess/2_trimmed/README.md
+!ngs_preprocess/3_mapping/README.md
+!ngs_preprocess/4_qualimap/README.md
+!ngs_preprocess/5a_salmonout/README.md
+!ngs_preprocess/5b_starout/README.md
+!ngs_preprocess/6_final/README.md
+ngs_preprocess/sra/scripts/exploratory/README.md
+!ngs_preprocess/reference/README.md
+!ngs_preprocess/sra/README.md
+
+
+
+# igonore other directories of the project
+
+data/raw/*
+data/processed/*
+data/databases/*
+
+results/pdf/*
+# results/jpg/*
+
+
+# make exception for README files
+!data/raw/README.md
+!data/processed/README.md
+!data/databases/README.md
+
+!results/pdf/README.md
+!results/jpg/README.md
+!results/README.md

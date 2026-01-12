@@ -1,0 +1,33 @@
+#!/usr/bin/env bash 
+
+# set parameters for FASTQ and quant storing 
+SALMON_INDEX="${HOME}"/cancer_project/ngs_preprocess/reference/hg38_salmon 
+INPUT="${HOME}"/cancer_project/ngs_preprocess/2_trimmed
+OUT="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
+TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/time.log
+SALMON_THREADS=20
+
+SECONDS=0
+
+# Test for 30 million paired end reads after trimming. 
+# Total reads 60 million.
+
+f1="${INPUT}"/SRR15852393_trimmed_1.fastq.gz
+f2="${INPUT}"/SRR15852393_trimmed_2.fastq.gz
+BASENAME=$(basename "${f1}" "_trimmed_1.fastq.gz")
+
+# Run Salmon with GC bias and bootstrapping
+salmon quant \
+-i "${SALMON_INDEX}" \
+-l A \
+-1 "${f1}" \
+-2 "${f2}" \
+-p "${SALMON_THREADS}" \
+--validateMappings --gcBias \
+--numBootstraps 30 \
+-o "${OUT}/${BASENAME}_salmon_quant"
+
+elapsed=$SECONDS
+echo "Completed salmon quantification for ${BASENAME}"
+echo "Total elapsed time: $elapsed seconds" >> "${TIME_OUT}"
+echo "Total elapsed time: $elapsed seconds"

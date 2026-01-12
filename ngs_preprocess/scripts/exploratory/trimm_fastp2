@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+# Set parameters 
+INPUT=${HOME}/cancer_project/ngs_preprocess/0_raw
+OUT=${HOME}/cancer_project/ngs_preprocess/2_trimmed
+FASTP_THREADS=3
+FASTP_JOBS=7
+
+# create new file_pairs.list or rewrite existing one
+> "${OUT}/file_pairs.list"
+> "${OUT}/missing_pairs.log"
+
+test_function() {
+    local f1=$1
+    local f2=$2
+    echo "Processing files with SRA: $(basename "${f1}" "_1.fastq.gz")"
+    sleep 2
+    echo "Finished $(basename "${f1}" "_1.fastq.gz")"
+}
+
+fastp_pairend() {
+
+    # The function trimms pair ends and save to output dir
+    # along with the html reports 
+
+    # using basename is a good option to rename the output files 
+    # using the SRA base name 
+    local f1=$1
+    local f2=$2
+    local BASENAME=$(basename "${f1}" "_1.fastq.gz")
+
+    # here we use the fastp parameters for pair end reads
+    fastp \
+    -i "${f1}" \
+    -I "${f2}" \
+    -o "${OUT}/${BASENAME}_trimmed_1.fastq.gz" \
+    -O "${OUT}/${BASENAME}_trimmed_2.fastq.gz" \
+    --thread ${FASTP_THREADS} \
+    --qualified_quality_phred 30 \
+    --length_required 36 \
+    --detect_adapter_for_pe \
+    --correction \
+    --html "${OUT}/${BASENAME}_fastp.html"
+    
+    echo "Completed trimming for ${BASENAME}"
+}
+
+
+# export functions for GNU and variables for functions
+export -f test_function
+export -f fastp_pairend
+export INPUT
+export OUT
+export FASTP_THREADS
+export FASTP_JOBS
+
+
+# Find the fastq files and create a list so it can be processed in pairs with GNU
+# cd "${INPUT}" || exit 1 
+find "${INPUT}" -maxdepth 1 -iname "*_1.fastq.gz" -print0 | sort -zu | \
+while IFS= read -r -d "" f1; do
+    BASENAME=$(basename "${f1}" "_1.fastq.gz")
+    f2="${f1/_1.fastq.gz/_2.fastq.gz}"
+
+    # check if f2 exists after substitution, else skip to next loop and keep track 
+    if [[ ! -f "${f2}" ]]; then 
+        echo "File ${f2} not found, skipping pair ${BASENAME}"
+        echo ${BASENAME} >> ${OUT}/missing_pairs.log
+        continue
+    fi
+
+    echo "The file is $(basename -- "${f1}") and the other pair is $(basename -- "${f2}")"
+    
+    # write f1 and f2 into a line and separate safely with string-tab-string-newline
+    printf '%s\t%s\n' "${f1}" "${f2}" >> "${OUT}/file_pairs.list"
+    done
+
+echo -e "\n"
+
+# run GNU parallel to process the pairs in file_pairs.list with test_function
+# create a subshell and use echo + function + etc.. inside the single quote 
+# note shell runs first, then parallel - so basename is not working.
+# the resi is PERL regex replacement inside parallel to remove path
+cat "${OUT}/file_pairs.list" | \
+    parallel -j 3 --colsep '\t' \
+    --tagstring 'Job {#} for {=1 s:.*/::; s/_1.fastq.gz// =}': \
+    'echo "Running $(basename -- "{1}" "_1.fastq.gz") before test"
+    test_function {1} {2}'
+
+# run GNU parallel to process with fastp for the pair end list
+# cat "${OUT}/file_pairs.list" | \
+#     parallel -j ${FASTP_JOBS} --colsep '\t' \
+#     fastp_pairend {1} {2}

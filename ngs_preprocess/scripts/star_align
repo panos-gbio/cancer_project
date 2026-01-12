@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# echo "test"
+
+# set parameters for FASTQ and quant storing
+STAR_INDEX="${HOME}"/cancer_project/ngs_preprocess/reference/hg38_star
+STAR_GTF="${HOME}"/cancer_project/ngs_preprocess/reference/
+TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/time.log
+INPUT="${HOME}"/cancer_project/ngs_preprocess/2_trimmed
+OUT="${HOME}"/cancer_project/ngs_preprocess/3_mapping
+STAR_THREADS=22
+
+# log for missing paired-end files
+> "${OUT}"/pairs_star.tsv
+> "${OUT}/missing_star.log"
+
+SECONDS=0
+
+# run STAR mapping for each paired-end sample
+for f1 in "${INPUT}"/*_trimmed_1.fastq.gz; do
+
+    f2="${f1/_trimmed_1./_trimmed_2.}"
+
+    # check if f2 exists in INPUT directory - i am not in the input dire
+    if [[ -f "${f2}" ]]; then
+        BASENAME1=$(basename "${f1}" "_trimmed_1.fastq.gz")
+        BASENAME2=$(basename "${f2}" "_trimmed_2.fastq.gz")
+
+        if [[ "${BASENAME1}" == "${BASENAME2}" ]]; then
+            echo "Running STAR mapping for sample: ${BASENAME1}"
+
+            mkdir -p "${OUT}"/"${BASENAME1}"
+
+            STAR --runThreadN "${STAR_THREADS}" \
+                 --genomeDir "${STAR_INDEX}" \
+                 --readFilesIn "${f1}" "${f2}" \
+                 --outFileNamePrefix "${OUT}/${BASENAME1}/${BASENAME1}_" \
+                 --readFilesCommand zcat \
+                 --outSAMtype BAM SortedByCoordinate \
+                 --quantMode TranscriptomeSAM GeneCounts \
+
+
+        else
+            echo "Mismatch in pair names: ${BASENAME1} and ${BASENAME2}"
+            exit 1
+        fi
+
+    else
+        echo "The file ${f1} is missing its pair file. Skipping STAR mapping for this sample."
+        echo -e "${f1}\t${f2}" >> "${OUT}"/missing_star.log
+    fi
+done
+
+duration=$SECONDS
+echo "$(date) | STAR-BAM-Transcriptome-Counts all samples 1x22 | $duration seconds" >> "${TIME_OUT}"
+

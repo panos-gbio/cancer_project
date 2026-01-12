@@ -1,0 +1,1 @@
+## This repository contains the mapped FASTQ files > SAM > BAM files after alignment to the reference genome.
