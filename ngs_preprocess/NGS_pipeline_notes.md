@@ -1,7 +1,7 @@
 # Bash Notes for NGS Preprocessing
 
 ## Table of Contents
-
+- [Setting up the project](#setting-up-the-project)
 - [Access FASTQ files with SRA-toolkit](#access-fastq-files-with-sra-toolkit)
     - [Installing SRA-toolkit](#installing-sra-toolkit)
     - [Download one SRR ID from GSE183947 using prefetch and fasterq-dump](#download-one-srr-id-from-gse183947-using-prefetch-and-fasterq-dump)
@@ -15,6 +15,64 @@
 - [Quantification with RSEM](#quantification-with-rsem)
 - [Some technical details in GNU parallel](#some-technical-details-in-gnu-parallel)
 
+
+## Setting up the project
+First I will create the project folder structure in the cancer_project directory. Normally I will create a GSE specific subdirectory in the sra folder to store the SRA/FASTQ url list file. I will use either script 1a or 1b to fetch my FASTQ files in GSE specific folders. The rest of the folders are self explanatory.
+
+```bash
+mkdir -p ${HOME}/cancer_project/ngs_preprocess/{0_raw, 1_fastqc 2_trimmed, 3_mapping, 4_qualimap, 5a_salmonout, 5b_starout, reference, scripts, sra}; mkdir reference/{hg38_star, hg38_salmon, hg38_rsem}
+
+# make a symbolic link of sra data to 0_raw after fetching the sra data.
+ln -s ${HOME}/cancer_project/ngs_preprocess/sra/GSE199451/parallel_fetch ${HOME}/cancer_project/ngs_preprocess/0_raw/
+
+```
+
+STAR requires a genome fasta file and a gtf annotation file to make an index for alignment to the genome. Salmon (and STAR) require a transcriptome annotation file for quantitation/(pseudo)alignment to the transcriptome. RSEM also requires to generate a reference to run the calculation functions. I need to got ENSEMBL and find the latest version of the human genome (GRCh38) and download both files. After I decompress in the reference dir I will use STAR to make the index and save the output to hg38_star.
+ENSEMBL links from human genome [release-115](https://ftp.ensembl.org/pub/release-115) <br>
+
+fasta file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz <br>
+gtf file: 	https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz <br>
+trascriptome file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+
+```bash
+# download references 
+wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz
+wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+
+# the we decompress the files 
+gunzip ${HOME}/cancer_project/ngs_preprocess/reference/*.gz
+
+# finally we can use find function to check where the reference is located in cancer_project dir
+find  ${HOME}/cancer_project" \
+  -type f \
+  -name 'Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz' \
+  -print
+```
+The arguments to make the STAR index are in the script below. The read length of the specific NGS library were 150bp pair end so the overhang distance will be 149. The argument is used to build the splice junction database (how much sequence around annotated junctions is used). <br>
+**Important** In wsl2 not all computer's RAM is allocated so I need to check how much is available. For STAR, we need high RAM (>30GB) and enough CPU cores to speed the process up during indexing. 
+
+```bash
+# check RAM and CPU availability in WSL2-Ubuntu
+free -h
+nproc 
+```
+I may also need to change the available RAM allocated to WSL2 using powershell by creating in `~/.wslconfig`. The script should be written in powershell and saved to the windows `C:\Users\yourusername\.wslconfig` path. 
+
+```powershell
+[wsl2]
+# Max RAM WSL2 VM can use (default is 50% of Windows RAM) :contentReference[oaicite:3]{index=3}
+# Leave headroom for Windows (browser, IDE, etc.)
+memory=48GB
+
+# Max logical processors WSL2 can use (default is all logical processors) :contentReference[oaicite:4]{index=4}
+processors=24
+
+# Swap is disk-based memory used when RAM is exhausted (default 25% of memory) :contentReference[oaicite:5]{index=5}
+# Setting some swap helps prevent OOM-kills, but it will be slower than RAM.
+swap=10GB
+```
+A final step. Some aliqnment QC tools such as RSeQC require BED files for gene annotation. I can either convert the GTF to BED using `gtf2bed` from `bedops` or download pre-made BED files from RSeQC website [here](https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/)
 ## Access FASTQ files with SRA-toolkit 
 
 The SRA archives a vast amount of sequerncing data. There are some prefixes in a typical SRA accession number: '
@@ -192,7 +250,9 @@ The SRA-explorer tool [here](https://sra-explorer.info/) can also generate a bas
 
 ### Downloading FASTQ files without SRA-toolkit.
 
-If the data is public in GEO, it may be accessible via ftp or http links in **ENA - European Nucleotide Archive**. For example, in ENA I can search for the same GSE183947 study using the ID and get direct links to the FASTQ files. Then I can use wget or curl to download them directly without using SRA-toolkit. This is a much simpler approach and I can parallelize the downloads using GNU-parallel which will speed things up. I am parallelizing the curl or wget proccesses using GNU-parallel as shown below.
+If the data is public in GEO, it may be accessible via ftp or http links in **ENA - European Nucleotide Archive**. For example, in ENA I can search for the same GSE183947 study using the ID and get direct links to the FASTQ files. Then I can use wget or curl to download them directly without using SRA-toolkit. This is a much simpler approach and I can parallelize the downloads using GNU-parallel which will speed things up. I am parallelizing the curl or wget proccesses using GNU-parallel as shown below.<br>
+
+First I can use the SRA-explorer tool [here](https://sra-explorer.info/) that can also generate a bash script to download multiple FASTQ files and check whether they are available in EBI ftp or ENA servers.
 
 ```bash
 ```
@@ -205,62 +265,7 @@ Another option for one files if prefetch is troublesome is to use wget to downlo
 ```
 There is also a tool called sra-ai
 
-### Create the project and make A STAR/Salmon index for RNA-seq alignment 
-First I will create the project folder structure in the cancer_project directory.
-
-```bash
-mkdir -p ${HOME}/cancer_project/ngs_preprocess/{0_raw, 1_fastqc 2_trimmed, 3_mapping, 4_qualimap, reference, scripts}; mkdir reference/{hg38_star, hg38_salmon}
-
-# make a symbolic link of sra data to 0_raw
-ln -s ~/practice/sra_data/parallel_fastq/* ~/cancer_project/ngs_preprocess/0_raw/
-
-```
-
-STAR requires a genome fasta file and a gtf annotation file to make an index for alignment to the genome. Salmon (and STAR) require a transcriptome annotation file for quantitation/(pseudo)alignment to the transcriptome. I need to got ENSEMBL and find the latest version of the human genome (GRCh38) and download both files. After I decompress in the reference dir I will use STAR to make the index and save the output to hg38_star.
-ENSEMBL links from human genome [release-115](https://ftp.ensembl.org/pub/release-115) <br>
-
-fasta file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz <br>
-gtf file: 	https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz <br>
-trascriptome file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
-
-```bash
-# download references 
-wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
-wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz
-wget -P ${HOME}/cancer_project/ngs_preprocess/reference https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
-
-# the we decompress the files 
-gunzip ${HOME}/cancer_project/ngs_preprocess/reference/*.gz
-
-# finally we can use find function to check where the reference is located in cancer_project dir
-find  ${HOME}/cancer_project" \
-  -type f \
-  -name 'Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz' \
-  -print
-```
-The arguments to make the STAR index are in the script below. The read length of the specific NGS library were 150bp pair end so the overhang distance will be 149. The argument is used to build the splice junction database (how much sequence around annotated junctions is used). <br>
-**Important** In wsl2 not all computer's RAM is allocated so I need to check how much is available. For STAR, we need high RAM (>30GB) and enough CPU cores to speed the process up during indexing. 
-
-```bash
-# check RAM and CPU availability in WSL2-Ubuntu
-free -h
-nproc 
-```
-I may also need to change the available RAM allocated to WSL2 using powershell by creating in `~/.wslconfig`. The script should be written in powershell and saved to the windows `C:\Users\yourusername\.wslconfig` path. 
-
-```powershell
-[wsl2]
-# Max RAM WSL2 VM can use (default is 50% of Windows RAM) :contentReference[oaicite:3]{index=3}
-# Leave headroom for Windows (browser, IDE, etc.)
-memory=48GB
-
-# Max logical processors WSL2 can use (default is all logical processors) :contentReference[oaicite:4]{index=4}
-processors=24
-
-# Swap is disk-based memory used when RAM is exhausted (default 25% of memory) :contentReference[oaicite:5]{index=5}
-# Setting some swap helps prevent OOM-kills, but it will be slower than RAM.
-swap=10GB
-```
+### Make STAR/Salmon index for RNA-seq alignment 
 The scripts below will be used for making the STAR and Salmon indices at `${HOME}/cancer_project/ngs_preprocess/reference` directory in the respective subfolders. <br>
 For STAR, the choice below will result in an index where STAR can map to transcriptome and genome simultaneously, and will select the best alignment. The gtf file is used to build the splice junction database and the option `--sjdbOverhang` will not be used during mapping but only during the genomeGenerate step. In the manual, genomeDir contents is described as genome sequence + suffix arrays + splice junction coordinates + transcript/gene information.
 

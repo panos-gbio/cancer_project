@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+#
+# Downloads 10 files concurrently
+
+
+# Enter parameters to download the FASTQ files 
+JOBS=10
+BASE_DIR="${HOME}/cancer_project/ngs_preprocess/sra"
+
+# check if the base directory exists
+if [[ ! -d "${BASE_DIR}" ]]; then
+    echo "Base directory does not exist: ${BASE_DIR}"
+    exit 1
+fi
+
+##### CHECK THE PARSE ARGUMENTS AND SET PATHS #####
+
+# explain how the argument is used
+usage() {
+    echo "Usage: $0 <GSE_FTP/SRA_Directory>"
+    echo "Example: $0 ${BASE_DIR}/GSE183947"
+}
+
+# check if the path to GSE has been given one exactly argument
+if [[ $# -ne 1 ]]; then
+    echo "Error: Missing GSE directory argument. Provide one argument."
+    usage
+    exit 1
+fi
+
+
+GSE_DIR="$1"
+FASTQ_LIST="${GSE_DIR}/fastq_list.txt"
+
+
+# Check if the GSE directory exists
+if [[ ! -d "${GSE_DIR}" ]]; then
+    echo "GSE directory does not exist: ERROR: ${GSE_DIR}"
+    exit 1
+fi
+
+# Check if the FASTQ list file exists
+if [[ ! -s "${FASTQ_LIST}" ]]; then
+    echo "FASTQ list file is empty or not found: ${FASTQ_LIST}"
+    exit 1
+fi
+
+# Check if parallel is installed
+if ! command -v parallel &> /dev/null; then
+    echo "ERROR: GNU parallel is not installed"
+    exit 1
+fi
+
+
+#### SCRIPT ####
+
+echo "FASTQ Parallel Download Script"
+echo "FASTQ list: $FASTQ_LIST"
+echo "Total files to download: $(wc -l < "${FASTQ_LIST}")"
+echo "========================================"
+
+download_fastq() {
+    local ftp_link="$1"
+    local output_dir="$2"
+    local filename
+    filename=$(basename "${ftp_link}")
+    
+    echo "Downloading: ${filename}"
+
+    # check the existence of the file before downloading 
+    if [[ -s "${output_dir}/${filename}" ]]; then
+        echo "File already exists, skipping: ${filename}"
+        return 0
+    fi
+
+    wget  --continue -P "${output_dir}" "${ftp_link}" || {
+        printf '%s\n' "${ftp_link}" >> "${output_dir}/fail.log"
+        return 1 
+    }
+    echo "Completed: ${filename}"
+}
+
+export -f download_fastq
+
+# if ! find "${GSE_DIR}" -maxdepth 1 -type f \( -name "*.fastq.gz" -o -name "*.fastq" \) \
+#     | wc -l | grep -q '^0$'; then
+
+echo "No FASTQ files found in the directory. Starting download..." 
+> "${GSE_DIR}/fail.log"  # create or empty the fail log file
+
+
+    # this {} is a placeholder for each line of the FASTQ_LIST
+parallel --jobs "${JOBS}" --progress --eta \
+    --tagstring job{#} \
+    download_fastq {} "${GSE_DIR}" :::: "${FASTQ_LIST}"
+    
+if [[ $(wc -l < "${GSE_DIR}/fail.log") -gt 0 ]]; then
+
+    # copy contents of fail.log 
+    RETRY_LIST="${GSE_DIR}/fail_round1.log"
+    cp "${GSE_DIR}/fail.log" "${RETRY_LIST}"
+    : > "${GSE_DIR}/fail.log"
+    clear
+    echo "Files to retry download:"
+    cat "${RETRY_LIST}"
+
+    echo "Some downloads failed. Check fail.log in ${GSE_DIR} for details."
+    echo reruning failed downloads...
+    parallel --jobs "${JOBS}" --progress --eta \
+    --tagstring retry_job{#} \
+    download_fastq {} "${GSE_DIR}" :::: "${RETRY_LIST}"
+fi
+
+echo "========================================"
+echo "All downloads completed!"

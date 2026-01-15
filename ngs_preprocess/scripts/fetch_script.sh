@@ -3,9 +3,9 @@
 # ADD PARAMETERS AND APPROPRIATE PATHS 
 
 JOBS=10
-SRA_FILE=~/practice/sra_data/SRR_Acc_List.txt
-OUTPUT_FETCH=~/practice/sra_data/parallel_fetch
-OUTPUT_FASTQ=~/practice/sra_data/parallel_fastq
+SRA_FILE=${HOME}/cancer_project/ngs_preprocess/sra/GSE199451/SRR_Acc_List.txt
+OUTPUT_FETCH=${HOME}/cancer_project/ngs_preprocess/sra/GSE199451/parallel_fetch
+OUTPUT_FASTQ=${HOME}/cancer_project/ngs_preprocess/sra/GSE199451/parallel_fastq
 
 # functions from SRA toolkit 
 PREFETCH=~/Downloads/sratoolkit.3.2.1-ubuntu64/bin/prefetch
@@ -66,5 +66,7 @@ else
     echo "FASTQ output directory is not empty, no need to run fasterq-dump. Remove all anything non FASTQ."
 fi
 
-# either use GNU parallel or a tool to speed up the zipping of fastq files
-#TODO: add gzip parallelization
+# Compress the FASTQ files with pigz to save space
+echo "Compressing FASTQ files with pigz..."
+find "${OUTPUT_FASTQ}" -maxdepth 1 -type f -name "*.fastq" -print0 |
+  parallel -0 -j 3 --line-buffer pigz -p 7 {}

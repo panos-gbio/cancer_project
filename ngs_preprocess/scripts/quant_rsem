@@ -1,0 +1,42 @@
+#!/usr/bin/env/ bash
+
+BAM_DIR=${HOME}/cancer_project/ngs_preprocess/3_mapping
+
+# when add this in rsem function, i need to pass the prefix hg38_rsem/hg38_rsem 
+RSEM_REF=${HOME}/cancer_project/ngs_preprocess/references/rsem/hg38_rsem
+OUT_DIR=${HOME}/cancer_project/ngs_preprocess/5b_starout
+
+
+
+rsem_calc() {
+    local bam_file="$1"
+    local output_dir="$2"
+    local rsem_ref="$3"
+
+    # chech STAR-aligned transcriptome BAM file validity 
+    if rsem-sam-validator "${bam_file}"; then
+        echo "BAM file ${bam_file} is valid."
+    else
+        echo "ERROR: BAM file ${bam_file} is invalid."
+        return 1
+    fi
+
+    local BASENAME=$(basename "${bam_file}" _Aligned.toTranscriptome.out.bam)
+    mkdir -p "${output_dir}/${BASENAME}_rsem"
+
+    rsem-calculate-expression --paired-end --alignments \
+    --strandedness reverse \
+    -p 11 \
+    "${bam_file}" \
+    "${rsem_ref}" \
+    "${output_dir}/${BASENAME}_rsem/${BASENAME}" || {
+        echo "ERROR: RSEM calculation failed for ${bam_file}"
+        return 1
+    }
+
+}
+
+# GNU parallel version, each line is passed in the {}
+find "${BAM_DIR}" -type f -name "*_Aligned.toTranscriptome.out.bam" | \
+    parallel --jobs 2 --line-buffer \
+    rsem_calc {} "${OUT_DIR}" "${RSEM_REF}"
