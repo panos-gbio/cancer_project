@@ -1,0 +1,66 @@
+#!/usr/bin/env Rscript
+
+# check that tximport is imported
+library(tximport)
+
+
+# get arguments after script name and count how many are allowed
+args <- commandArgs(trailingOnly = TRUE)
+outdir <- if (length(args) >=1) args[1] else stop("Output directory argument is required")
+mode <- if (length(args) >=2) args[2] else "scaledTPM"
+name_samples <- if (length(args) >=3) args[3] else stop("Sample names argument is required")
+final_dir <- if (length(args) >=4) args[4] else stop("Final directory argument is required")
+
+# put the relative path /6_final
+
+# check that he mode could be any of these
+if (!mode %in% c("scaledTPM", "lengthScaledTPM", "no")) 
+stop("Invalid mode argument, provide any of 'scaledTPM', 'lengthScaledTPM' or 'no'")
+
+print(paste0("Output directory is: ", outdir," mode: ", mode))
+
+# parse the isoforms files in the directory 
+files <- list.files(outdir,
+                    pattern = ".isoforms.results$",
+                    recursive = TRUE, full.names = TRUE)
+files <- sort(files)
+
+# to get sample name I extract the basename and substitute the_rsem with ""
+sample_dirs <- basename(dirname(files))
+sample_names <- sub("_rsem$", "", basename(dirname(files)))
+# gsub("_rsem", "", basename(dirname(files)))
+
+# make a named vector 
+names(files) <- sample_names
+files
+
+# make tx2gene mapping from the first file
+df <-read.delim(files[1], header = TRUE)
+
+# I suppose I can use only the first sample trasncripts for all
+# the GTF contains all transcripts and they were all quantified by RSEM
+tx2gene <- df[, c("transcript_id", "gene_id")]
+
+
+
+# for RSEM, TXIN and TXOUT are both TRUE and ENSG and ENST IDs are available
+# txi takes many sample inputs so we get tables
+txi.rsem <- tximport(files,
+                  type = "rsem",
+                  txIn = TRUE,
+                  txOut = FALSE,
+                  tx2gene = tx2gene,
+                  countsFromAbundance = mode)
+
+head(txi.rsem$counts)
+head(txi.rsem$abundance)
+
+counts <- file.path(final_dir, paste0(name_samples,"_tximport_rsem_lengthScaledTPM.tsv"))
+abundance <- file.path(final_dir, paste0(name_samples,"_tximport_rsem_TPMs.tsv"))
+
+# write in tab-separated format, keep rownames and collumn names
+write.table(txi.rsem$counts, file = counts, sep = "\t", quote = FALSE, row.names = TRUE, col.names = TRUE)
+write.table(txi.rsem$abundance, file = abundance, sep = "\t", quote = FALSE, row.names = TRUE, col.names = TRUE)
+
+
+

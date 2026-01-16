@@ -1,7 +1,7 @@
 # Bash Notes for NGS Preprocessing
 
 ## Table of Contents
-- [Setting up the project](#setting-up-the-project)
+- [Setting up the Project and Reference files](#setting-up-the-project-and-reference-files)
 - [Access FASTQ files with SRA-toolkit](#access-fastq-files-with-sra-toolkit)
     - [Installing SRA-toolkit](#installing-sra-toolkit)
     - [Download one SRR ID from GSE183947 using prefetch and fasterq-dump](#download-one-srr-id-from-gse183947-using-prefetch-and-fasterq-dump)
@@ -12,11 +12,12 @@
 - [Trimming with FastP](#trimming-with-fastp)
 - [Pseudo-alignment and Quantification with Salmon](#pseudo-alignment-and-quantification-with-salmon)
 - [Mapping with STAR aligner](#mapping-to-genome-with-star-aligner)
+- [Post Alignment QC (RSeQC, Qualimap, MultiQC)](#post-alignment-qc-rseqc-qualimap-multiqc)
 - [Quantification with RSEM](#quantification-with-rsem)
 - [Some technical details in GNU parallel](#some-technical-details-in-gnu-parallel)
 
 
-## Setting up the project
+## Setting up the Project and Reference files
 First I will create the project folder structure in the cancer_project directory. Normally I will create a GSE specific subdirectory in the sra folder to store the SRA/FASTQ url list file. I will use either script 1a or 1b to fetch my FASTQ files in GSE specific folders. The rest of the folders are self explanatory.
 
 ```bash
@@ -72,7 +73,41 @@ processors=24
 # Setting some swap helps prevent OOM-kills, but it will be slower than RAM.
 swap=10GB
 ```
-A final step. Some aliqnment QC tools such as RSeQC require BED files for gene annotation. I can either convert the GTF to BED using `gtf2bed` from `bedops` or download pre-made BED files from RSeQC website [here](https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/)
+
+Some aliqnment QC tools such as RSeQC require BED files for gene annotation. I can either convert the GTF to BED using ucsc functions or download pre-made BED files from RSeQC website [here](https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/)
+
+Below I will convert the .gtf file to .bed file, which will be used in QC section. 
+
+
+```bash
+
+# install and check whereabouts 
+conda install bioconda:ucsc-genepredtobed
+conda install bioconda:ucsc-gtftogenepred
+which gtfToGenePred
+which genepredToBed
+
+# convert in two steps
+gtfToGenePred \
+"${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.gtf" \
+"${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.genePred"
+
+genePredToBed \
+"${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.genePred" \
+"${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.bed"
+
+# remove intermediate file
+rm -r "${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.genePred"
+
+```
+A final step instead of running all the bed file for some slow functions of RSeQC, is to either generate the bed annotation of housekeeping gene of my current version or download the one that  is available [here](https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/).
+
+```bash 
+wget 
+
+```
+
+
 ## Access FASTQ files with SRA-toolkit 
 
 The SRA archives a vast amount of sequerncing data. There are some prefixes in a typical SRA accession number: '
@@ -241,29 +276,22 @@ pigz -p 12 "${OUTPUT_FASTQ}"/*.fastq
 
 All the steps discussed above are saved in the same scrip at `${HOME}/cancer_project/ngs_preprocess/scripts/sra_parallel_fetch_fastq.sh` <br>
 
-**IDEAS - PARALLELIZATION** <br>
-Some Ideas in parallelizations and downloading multiple files or running multiple prefetch commands. Interesting discussion [here](https://github.com/ncbi/sra-tools/issues/560) <br>
-GNU-parallel is also discussed [here](https://www.biostars.org/p/63816/) <br>
-The SRA-explorer tool [here](https://sra-explorer.info/) can also generate a bash script to download multiple SRA files in parallel using prefetch and fasterq-dump.
-
-
 
 ### Downloading FASTQ files without SRA-toolkit.
 
 If the data is public in GEO, it may be accessible via ftp or http links in **ENA - European Nucleotide Archive**. For example, in ENA I can search for the same GSE183947 study using the ID and get direct links to the FASTQ files. Then I can use wget or curl to download them directly without using SRA-toolkit. This is a much simpler approach and I can parallelize the downloads using GNU-parallel which will speed things up. I am parallelizing the curl or wget proccesses using GNU-parallel as shown below.<br>
 
-First I can use the SRA-explorer tool [here](https://sra-explorer.info/) that can also generate a bash script to download multiple FASTQ files and check whether they are available in EBI ftp or ENA servers.
-
-```bash
-```
-
-Another option for one files if prefetch is troublesome is to use wget to download the .sra file directly from the http link in the SRA-run selector. Then use fasterq-dump to convert it to FASTQ files.
-
-```
+1) First I can use the SRA-explorer tool [here](https://sra-explorer.info/) that can also generate a bash script to download multiple FASTQ files and check whether they are available in EBI ftp or ENA servers.
 
 
-```
-There is also a tool called sra-ai
+2) Another option if prefetch is troublesome is to use wget to download the .sra file directly from the http link in the SRA-run selector. Then use fasterq-dump to convert it to FASTQ files. The SRA server is limited to 10 jobs for prefetch, maybe wget can bypass this. 
+
+3) There is also a tool called fastq-dl that can download FASTQ files directly from ENA using the SRR IDs. The tool is available [here](https://github.com/rpetit3/fastq-dl)
+
+**OTHER IDEAS - PARALLELIZATION in Fetching** <br>
+Some Ideas in parallelizations and downloading multiple files or running multiple prefetch commands. Interesting discussion [here](https://github.com/ncbi/sra-tools/issues/560) <br>
+GNU-parallel is also discussed [here](https://www.biostars.org/p/63816/) <br>
+The SRA-explorer tool [here](https://sra-explorer.info/) can also generate a bash script to download multiple SRA files in parallel using prefetch and fasterq-dump.
 
 ### Make STAR/Salmon index for RNA-seq alignment 
 The scripts below will be used for making the STAR and Salmon indices at `${HOME}/cancer_project/ngs_preprocess/reference` directory in the respective subfolders. <br>
@@ -519,9 +547,60 @@ STAR --runThreadN 22 \
 --quantMode TranscriptomeSAM GeneCounts
 ```
 The output files from STAR are:
+- A per sample folder in the `3_mapping` directory with the name of the sample.
+- Each sample folder contains multiple output files from STARand each folder contains the names of the sample as prefix. 
 - Aligned.sortedByCoord.out.bam : BAM file sorted by coordinate with genome alignments.
 - Aligned.toTranscriptome.out.bam : BAM file with alignments projected to the transcriptome for quantification.
 - Log.final.out : summary of mapping statistics.
+
+
+
+### Post Alignment QC (RSeQC, Qualimap, MultiQC)
+Starting with RSeQC. I will need the BAM file of each sample sorted by coordinate. Furthermore, I will need the gene model (.gtf file) in bed format. I have already done the conversion in the first section. Furthermore, I will need a subset of the genes for the gene body coverage function. The file I will uise is the one available from RSeQC.
+
+```bash
+# I should check the chromosome contigs names in BAM and BED files.
+samtools idxstats ./3_mapping/SRR15852393/SRR15852393_Aligned.sortedByCoord.out.bam | head
+
+head -n 5 ${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.bed
+
+head -n 5 ${HOME}/cancer_project/ngs_preprocess/reference/Homo_sapiens.GRCh38.115.bed
+
+```
+An important note about using samtools to convert to `.bam.bai` files. When I run samtools and I used the .bam file path, the program for the RSeQC automatically found the `.bai` when it was in the same directory. 
+
+The time required to run the RSeQC for one sample is around 12 minutes. Qualimap requires the bam file to sorted buy coordinate and name (it automatically sorts by read name if i choose the -pe option). However, if the bam is not sorted by name, Qualimap's single-threaded mode is very slow, taking around 1200 minutes. <br>
+Instead it would be better to create a **temporary bam_name_sort** file before we run qualimap. A bam file PE with 30 million reads took 116 seconds to be sorted by name and the bam file has a size of 1.3GB. The .bai version is around 7MB and it's coordinate-sorted version around 6GB. The transcriptome-Sam file around 1.5GB. The qualimap took 477 seconds with the name-sorted bam file as input. <br>
+
+Below I have kept a part of my posty_alignqc bash script that runs Qualimap for each sample to remember the details. 
+
+```bash
+#!/usr/bin/env bash 
+MAP_DIR="${HOME}"/cancer_project/ngs_preprocess/3_mapping
+SALMON_DIR="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
+QC_DIR="${HOME}"/cancer_project/ngs_preprocess/4_qualimap
+REF_DIR="${HOME}"/cancer_project/ngs_preprocess/reference
+
+# necessary files for RSeQC
+BED_HOUSEGENES="${REF_DIR}/hg38.HouseKeepingGenes.bed"
+BED_ANNOTATION="${REF_DIR}/Homo_sapiens.GRCh38.115.bed"
+
+samtools sort -n -@ 16 -o "${QC_DIR}/${sample_name}.namesort.bam" "$bam"
+
+qualimap rnaseq \
+  -bam "$bam" \
+  -gtf "${REF_DIR}/Homo_sapiens.GRCh38.115.gtf" \
+  -outdir "${QC_DIR}/${sample_name}" \
+  -outformat HTML \
+  --java-mem-size=16G >& "${QC_DIR}/${sample_name}/${sample_name}_qualimap.log"
+
+# remove temporary name_sorted bam
+rm "${QC_DIR}/${sample_name}.namesort.bam"
+
+```
+
+**Verdict**
+Since RSeQC takes time but not too much RAM or threads, it would be possible to parallelize the analysis of specific samples, around 4-5 with possibly 5 cores each. Qualimap will run with temporary name-sort bam files either parallelized by 2 or in a for loop (depending how RAM handles both Samples at the same time). 
 
 ### Quantification with RSEM 
 RSEM requires a reference index built with the same genome fasta and gtf annotation file as STAR (laready done). RSEM can take as input either the FASTQ files directly or the BAM file from STAR with transcriptome alignments. Here I will use the latter approach. 
@@ -675,5 +754,21 @@ What happned here?
 
 ```bash 
 awk -F '[[:space:]]*\\|[[:space:]]*' 'BEGIN { OFS = "\t"; print "method", "cores", "time" } {print $2, $3, $4}' ./scripts/exploratory/time.log | sed 's#seconds##g' > results.txt
+
+```
+
+difference in basename uses:
+In the second case the dirname returns the parent directory of the file path, which is `SRR123` in this case. Then basename extracts the last part of that path, which is again `SRR123`. So both approaches give the same result here.
+
+```bash
+
+# hypothetical directory with files
+bam_dir="/data/3_mapping/SRR123/SRR123_Aligned.sortedByCoord.out.bam"
+
+base=$(basename "${bam_dir}" "_Aligned.sortedByCoord.out.bam")
+echo "${base}"  # Output: SRR123
+
+base2=$(basename $(dirname "${bam_dir}"))
+echo "${base2}"  # Output: SRR123)
 
 ```

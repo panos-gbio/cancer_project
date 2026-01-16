@@ -1,9 +1,10 @@
-#!/usr/bin/env/ bash
+#!/usr/bin/env bash
 
 BAM_DIR=${HOME}/cancer_project/ngs_preprocess/3_mapping
-
+THREADS=11
+JOBS=2
 # when add this in rsem function, i need to pass the prefix hg38_rsem/hg38_rsem 
-RSEM_REF=${HOME}/cancer_project/ngs_preprocess/references/rsem/hg38_rsem
+RSEM_REF=${HOME}/cancer_project/ngs_preprocess/reference/hg38_rsem/hg38_rsem
 OUT_DIR=${HOME}/cancer_project/ngs_preprocess/5b_starout
 
 
@@ -12,31 +13,48 @@ rsem_calc() {
     local bam_file="$1"
     local output_dir="$2"
     local rsem_ref="$3"
-
-    # chech STAR-aligned transcriptome BAM file validity 
-    if rsem-sam-validator "${bam_file}"; then
-        echo "BAM file ${bam_file} is valid."
-    else
-        echo "ERROR: BAM file ${bam_file} is invalid."
-        return 1
-    fi
-
+    
     local BASENAME=$(basename "${bam_file}" _Aligned.toTranscriptome.out.bam)
     mkdir -p "${output_dir}/${BASENAME}_rsem"
 
+    local log_file="${output_dir}/rsem_${BASENAME}.log"
+    
+    # chech STAR-aligned transcriptome BAM file validity 
+    # write to log file and print to stdout
+    if rsem-sam-validator "${bam_file}" > "${log_file}" 2>&1; then
+        echo "BAM file ${bam_file} is valid." | tee -a "${log_file}"
+    else
+        echo "ERROR: BAM file ${bam_file} is invalid." | tee -a "${log_file}"
+        return 1
+    fi
+
+    # I need to create output directory for each sample before running rsem
+   
     rsem-calculate-expression --paired-end --alignments \
     --strandedness reverse \
-    -p 11 \
+    -p "${THREADS}" \
     "${bam_file}" \
     "${rsem_ref}" \
     "${output_dir}/${BASENAME}_rsem/${BASENAME}" || {
-        echo "ERROR: RSEM calculation failed for ${bam_file}"
+        echo "ERROR: RSEM calculation failed for ${bam_file}" | tee -a "${log_file}"
         return 1
     }
 
 }
 
-# GNU parallel version, each line is passed in the {}
-find "${BAM_DIR}" -type f -name "*_Aligned.toTranscriptome.out.bam" | \
-    parallel --jobs 2 --line-buffer \
+export -f rsem_calc
+export THREADS
+export RSEM_REF
+export OUT_DIR
+
+SECONDS=0
+# GNU parallel version, each line is passed in the {} - null separation needs -0
+find "${BAM_DIR}" -type f -name "*_Aligned.toTranscriptome.out.bam" -print0 | \
+    parallel -0 --jobs "${JOBS}" --line-buffer \
+    --joblog "${OUT_DIR}/rsem_parallel.log" \
     rsem_calc {} "${OUT_DIR}" "${RSEM_REF}"
+
+# write in runtime log, the date-IS does not expand into many words 
+DURATION=$SECONDS
+printf "%s\t%s\t%s\n" "$(date -Is)" "RSEM" "${DURATION}" \
+  >> "${OUT_DIR}/rsem_runtime.log"

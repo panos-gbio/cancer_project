@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+QUANT_DIR=${HOME}/cancer_project/ngs_preprocess/5b_starout
+AGG_DIR=${HOME}/cancer_project/ngs_preprocess/6_final
+EXPERIMENT_NAME="GSE19862"
+
+# import the R script to aggregate matrices
+RSCRIPT_PATH=${HOME}/cancer_project/ngs_preprocess/scripts/quant_tximport
+
+# run the R script with necessary arguments
+Rscript "${RSCRIPT_PATH}" "${QUANT_DIR}" "lengthScaledTPM" "${EXPERIMENT_NAME}" "${AGG_DIR}"

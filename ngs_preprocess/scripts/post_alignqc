@@ -1,12 +1,146 @@
-#!usr/bin/env bash 
+#!/usr/bin/env bash 
 MAP_DIR="${HOME}"/cancer_project/ngs_preprocess/3_mapping
 SALMON_DIR="${HOME}"/cancer_project/ngs_preprocess/5a_salmonout
 QC_DIR="${HOME}"/cancer_project/ngs_preprocess/4_qualimap
+REF_DIR="${HOME}"/cancer_project/ngs_preprocess/reference
 
-# MultiQC runs recursively through a directory with STAR results using -m star
-multiqc "${MAP_DIR}"/ -m star -0 "${QC_DIR}"/multiqc_star
+# necessary files for RSeQC
+BED_HOUSEGENES="${REF_DIR}/hg38.HouseKeepingGenes.bed"
+BED_HKRUN=""
+BED_ANNOTATION="${REF_DIR}/Homo_sapiens.GRCh38.115.bed"
 
-# For Salmon results 
-multiqc "${SALMON_DIR}"/ -m salmon -0 "${QC_DIR}"/multiqc_salmon
+# create a runtime log file 
+# > "${QC_DIR}"/runtime.log
 
-# RSeQC runs 
+
+# # MultiQC runs recursively through a directory with STAR results using -m star
+# multiqc "${MAP_DIR}"/ -m star -0 "${QC_DIR}"/multiqc_star
+
+# # For Salmon results 
+# multiqc "${SALMON_DIR}"/ -m salmon -0 "${QC_DIR}"/multiqc_salmon
+
+# RSeQC runs to BAM files write for loop to check sorted bams
+find "${MAP_DIR}"/ -type f -name "*_Aligned.sortedByCoord.out.bam" -print0 |
+while IFS= read -r -d "" bam; do
+    pref_ix=$(samtools view -H "$bam" | grep "@HD" | cut -f 3)
+
+    # check if BAM is sorted 
+    if [[ "${pref_ix}" != "SO:coordinate" ]]; then
+        echo "ERROR: Bam files not sorted"
+    fi
+
+    # Check that chromosome contigs have ENSEMBE non-chr prefix e.g. 1, 2 instead chr1
+    pref_ix1=$(samtools view -H "$bam" | grep "^@SQ" | head -n 1)
+    if echo ${pref_ix1} | grep -q "SN:chr"; then
+        echo "ERROR: BAM contains chromosome contigs with 'chr' prefix - not ENSEMBLE style"
+    else
+        echo "BAM contigs ENSEMBLE style "
+    fi
+done
+
+# check the BED annoatation file of housekeeping genes
+if head "${BED_HOUSEGENES}" | cut -f1 | grep -q "^chr"; then
+    echo "The housekeeping genes BED file contains 'chr' prefix - not ENSEMBLE style"
+
+    # convert the chr to non-chr at start of contig names only
+    cat "${BED_HOUSEGENES}" | sed 's/^chr//' | sed 's/^M\t/MT\t/' > "${BED_HOUSEGENES%.bed}.ENSEMBLE.bed"
+    BED_HKRUN="${BED_HOUSEGENES%.bed}.ENSEMBLE.bed"
+    echo "Created a Housekeeping genes BED file with ENSEMBLE style contig names"
+else
+    BED_HKRUN="${BED_HOUSEGENES}"
+    echo "The housekeeping genes BED file contains ENSEMBLE style contig names"
+fi
+
+# check the BED annoatation file
+if head "${BED_ANNOTATION}" | cut -f1 | grep -q "^chr"; then
+    echo "The annotation BED file contains 'chr' prefix - not ENSEMBLE style"
+else
+    echo "The annotation BED file contains ENSEMBLE style contig names"
+fi
+
+
+# run RSeQC functions 
+# for bam in "${MAP_DIR}"/SRR*/SRR*_Aligned.sortedByCoord.out.bam; do
+    
+#     # STAR generates a sub-directory per sample named after the SRRXX. Here we extract the name
+#     sample_name=$(basename "$(dirname "$bam")")
+
+#     echo "Running RSeQC for sample: ${sample_name}"
+    
+#     SECONDS=0
+#     samtools index -@ 5 "$bam"
+    
+#     # it will automatically find the .bai file if in same directory as .bam
+#     # 1 Gene-Body coverage need .bai file 
+#     geneBody_coverage.py -r "${BED_HKRUN}" \
+#     -i "$bam" \
+#     -o "${QC_DIR}"/"${sample_name}"_geneBody_coverage
+   
+#     # 2. Infer experiment
+#     infer_experiment.py -r "${BED_ANNOTATION}" \
+#     -i "$bam" \
+#     > "${QC_DIR}"/"${sample_name}"_infer_experiment.txt
+
+#     # 3. Junction saturation
+#     junction_saturation.py -r "${BED_ANNOTATION}" \
+#     -i "$bam" \
+#     -o "${QC_DIR}"/"${sample_name}"_junction_saturation
+    
+#     # 4. Read distribution
+#     read_distribution.py -r "${BED_ANNOTATION}" \
+#     -i "$bam" \
+#     > "${QC_DIR}"/"${sample_name}"_read_distribution.txt
+
+#     # 5. Junction annotation
+#     junction_annotation.py -r "${BED_ANNOTATION}" \
+#     -i "$bam" \
+#     -o "${QC_DIR}"/"${sample_name}"_junction_annotation
+
+#     # 6. Inner distance
+#     inner_distance.py -r "${BED_ANNOTATION}" \
+#     -i "$bam" \
+#     -o "${QC_DIR}"/"${sample_name}"_inner_distance
+
+#     # time checks 
+#     DURATION=$SECONDS
+#     echo "${sample_name} RSeQC ${DURATION}" >> "${QC_DIR}"/runtime.log
+
+# done
+
+
+
+for bam in "${MAP_DIR}"/SRR*/SRR*_Aligned.sortedByCoord.out.bam; do
+    
+    # STAR generates a sub-directory per sample named after the SRRXX. Here we extract the name
+    sample_name=$(basename "$(dirname "$bam")")
+
+    echo "Running Qualimap for sample: ${sample_name}"
+    
+    #run Qualimap and put stdin and stdout in a log file
+    SECONDS=0
+    samtools sort -n -@ 16 -o "${QC_DIR}/${sample_name}.namesort.bam" "$bam"
+
+    # sub-directory per sample
+    mkdir -p "${QC_DIR}/${sample_name}"
+
+    qualimap rnaseq -pe -s\
+    -bam "${QC_DIR}/${sample_name}.namesort.bam" \
+    -gtf "${REF_DIR}/Homo_sapiens.GRCh38.115.gtf" \
+    -outdir "${QC_DIR}/${sample_name}/" \
+    -outfile "${sample_name}" \
+    -outformat "HTML" \
+    --java-mem-size=16G >& "${QC_DIR}/${sample_name}/${sample_name}_qualimap.log"
+
+    # remove temporary name_sorted bam
+    rm "${QC_DIR}/${sample_name}.namesort.bam"
+
+    # time checks 
+    DURATION=$SECONDS
+    echo "${sample_name} Qualimap ${DURATION}" >> "${QC_DIR}"/runtime.log
+
+done
+
+echo "END OF SCRIPT"
+
+# Use MultiQC to aggregate the results from RSeQC, Qualimap and STAR
+# choose which paths multiqc va recursively scan for each sample name
