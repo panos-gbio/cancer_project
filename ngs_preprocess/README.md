@@ -6,6 +6,7 @@ TODO: add details about the RNAseq preprocessing pipeline here
 
 
 ### All the bash scripts used for pre-processing the RNA-seq data are available in this directory.
+
 - In the exploratory directory, there are some additional scripts that were used for testing and exploring different tools and methods.
 
 In the box below is a list of the main scripts used in the pipeline along with a brief description of their functionality. The scripts are hyperlinked. The numbers correspond to the order in which they can be executed in the pipeline.

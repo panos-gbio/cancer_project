@@ -2,13 +2,18 @@
 
 # set parameters for FASTQ and quant storing
 STAR_INDEX="${HOME}"/cancer_project/ngs_preprocess/reference/hg38_star
-TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/time.log
+TIME_OUT="${HOME}"/cancer_project/ngs_preprocess/scripts/exploratory/comparisons_time.tsv
 INPUT="${HOME}"/cancer_project/ngs_preprocess/2_trimmed
 OUT="${HOME}"/cancer_project/ngs_preprocess/3_mapping
+METHOD="STAR-30-no-SAM-no-sort"
 
+# write header once (if file doesn't exist or is empty)
+if [[ ! -s "${TIME_OUT}" ]]; then
+  printf "date\tmethod\tthreads\tmax_rss_kb\telapsed_s\tstatus\n" > "${TIME_OUT}"
+fi
 
 # run the same sample mutiple times in different threads
-for STAR_THREADS in {8,8,8,8,11,12,12,12,16,16,16,20,20,20,22,22,22}; do
+for STAR_THREADS in {5,5,5}; do
 
     # a warm-up run and then triplicate runs 
 
@@ -17,28 +22,48 @@ for STAR_THREADS in {8,8,8,8,11,12,12,12,16,16,16,20,20,20,22,22,22}; do
     f2="${f1/_1.fastq.gz/_2.fastq.gz}"
     BASENAME1="$(basename "${f1}" "_trimmed_1.fastq.gz")"
 
-    if [[ -f "${f2}" ]]; then
+    if [[ -f "${f2}" && -f "${f1}" ]]; then
         echo "Running STAR mapping for sample: ${BASENAME1} with ${STAR_THREADS} threads"
-        SECONDS=0
         
         # delete and create output folder - ignore if it does not exist
         rm -rf -- "${OUT}"/"${BASENAME1}_test"
         mkdir -p -- "${OUT}"/"${BASENAME1}_test"
-        STAR --runThreadN "${STAR_THREADS}" \
+
+        # make a tmp file to capture memory usage
+        mem_temp="$(mktemp)"
+
+        SECONDS=0
+        /usr/bin/time -f '%M' -o "${mem_temp}" \
+            STAR --runThreadN "${STAR_THREADS}" \
              --genomeDir "${STAR_INDEX}" \
              --readFilesIn "${f1}" "${f2}" \
              --outFileNamePrefix "${OUT}/${BASENAME1}_test/${BASENAME1}_" \
              --readFilesCommand zcat \
-             --outSAMtype BAM SortedByCoordinate \
-             --quantMode TranscriptomeSAM GeneCounts
+             --outSAMtype BAM Unsorted \
+             --quantMode GeneCounts \
+             --limitBAMsortRAM 30000000000
         
-        if [[ $? -eq 0 ]]; then
-            echo "$(date) | STAR-30m | ${STAR_THREADS} | $SECONDS seconds" >> "${TIME_OUT}"
-            echo "Done and deleting output folder"
+        # get exit code, time and memory usage 
+        star_rc=$?
+        ELAPSED=$SECONDS
+        max_rss_kb="$(tr -d '[:space:]' < "${mem_temp}")"
+        rm -f -- "${mem_temp}"
+        
+        if [[ "${star_rc}" -eq 0 ]]; then
+            STATUS="OK"
         else
-            echo "$(date) | STAR-30m | ${STAR_THREADS} | $SECONDS seconds FAILED" >> "${TIME_OUT}"
-
+            STATUS="FAIL"
         fi
+
+        # log the time and memory usage
+
+        # Make sure to get date in a consistent format
+        ts="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+
+        # append a tab-sep record 
+        printf "%s\t%s\t%s\t%s\t%s\t%s\n" \
+        "${ts}" "${METHOD}" "${STAR_THREADS}" "${max_rss_kb}" "${ELAPSED}" "${STATUS}" \
+        >> "${TIME_OUT}"
     else
         exit 1
     fi
@@ -46,7 +71,7 @@ for STAR_THREADS in {8,8,8,8,11,12,12,12,16,16,16,20,20,20,22,22,22}; do
     # wait for a minute before next run
     sleep 60 
 
-# delete once all done 
+# delete output folder to save space
 rm -rf -- "${OUT}"/"${BASENAME1}_test"
 done
 

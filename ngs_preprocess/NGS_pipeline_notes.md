@@ -1,13 +1,14 @@
 # Bash Notes for NGS Preprocessing
 
 ## Table of Contents
+
 - [Setting up the Project and Reference files](#setting-up-the-project-and-reference-files)
 - [Access FASTQ files with SRA-toolkit](#access-fastq-files-with-sra-toolkit)
     - [Installing SRA-toolkit](#installing-sra-toolkit)
     - [Download one SRR ID from GSE183947 using prefetch and fasterq-dump](#download-one-srr-id-from-gse183947-using-prefetch-and-fasterq-dump)
     - [Download multiple SRR IDs from GSE183947 in a text file.](#download-multiple-srr-ids-from-gse183947-in-a-text-file)
     - [Downloading FASTQ files without SRA-toolkit.](#downloading-fastq-files-without-sra-toolkit)
-- [Create the project and make A STAR/Salmon index for RNA-seq alignment](#create-the-project-and-make-a-starsalmon-index-for-rna-seq-alignment)
+- [Make STAR/Salmon index for RNA-seq alignment](#make-starsalmon-index-for-rna-seq-alignment)
 - [Quality control of the FASTQ files (FASTQC and MULTIQC)](#quality-control-of-the-fastq-files-fastqc-and-multiqc)
 - [Trimming with FastP](#trimming-with-fastp)
 - [Pseudo-alignment and Quantification with Salmon](#pseudo-alignment-and-quantification-with-salmon)
@@ -18,7 +19,14 @@
 
 
 ## Setting up the Project and Reference files
+
 First I will create the project folder structure in the cancer_project directory. Normally I will create a GSE specific subdirectory in the sra folder to store the SRA/FASTQ url list file. I will use either script 1a or 1b to fetch my FASTQ files in GSE specific folders. The rest of the folders are self explanatory.
+
+The genomes from different databases (ENSEMBL, NCBI, UCSC) may have different names for the same chromosomes. It is important to keep track of the version of the genome used for alignment and quantification.
+
+- ESNSEMBL: GRCh38.p14 V115, names the chromosomes as 1,2,3,...X,Y,MT
+- UCSC: hg38, names the chromosomes as chr1, chr2,...chrX, chrY, chrM
+- NCBI T2T: CHM13v2.0, names the chromosomes as chr1, chr2,...chrX, chrY, chrM plus other contigs. Also the existence of other contigs may affect the mapping and quantification, or the use of older tools that might not consider their naming. 
 
 ```bash
 mkdir -p ${HOME}/cancer_project/ngs_preprocess/{0_raw, 1_fastqc 2_trimmed, 3_mapping, 4_qualimap, 5a_salmonout, 5b_starout, reference, scripts, sra}; mkdir reference/{hg38_star, hg38_salmon, hg38_rsem}
@@ -28,12 +36,22 @@ ln -s ${HOME}/cancer_project/ngs_preprocess/sra/GSE199451/parallel_fetch ${HOME}
 
 ```
 
-STAR requires a genome fasta file and a gtf annotation file to make an index for alignment to the genome. Salmon (and STAR) require a transcriptome annotation file for quantitation/(pseudo)alignment to the transcriptome. RSEM also requires to generate a reference to run the calculation functions. I need to got ENSEMBL and find the latest version of the human genome (GRCh38) and download both files. After I decompress in the reference dir I will use STAR to make the index and save the output to hg38_star.
-ENSEMBL links from human genome [release-115](https://ftp.ensembl.org/pub/release-115) <br>
+STAR requires a genome fasta file and a gtf annotation file to make an index for alignment to the genome. Salmon require a transcriptome annotation file for quantitation/(pseudo)alignment to the transcriptome. RSEM also requires to generate a reference to run the calculation functions. I need to got ENSEMBL and find the latest version of the human genome (GRCh38) and download both files. After I decompress in the reference dir I will use STAR to make the index and save the output to hg38_star.
 
-fasta file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz <br>
-gtf file: 	https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz <br>
-trascriptome file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+- ENSEMBL links from human genome [release-115](https://ftp.ensembl.org/pub/release-115)
+- Fasta file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz 
+- GTF file: 	https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz
+- Transcriptome file: https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+
+I have also found the T2T version of the genome in NCBI ftp server:
+
+- The link is here [https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/914/755/GCF_009914755.1_T2T-CHM13v2.0/]. The NCBI version GTF file contains HUGO gene nomenclature that might affect downstream analysis since HUGO-multiple ENSEMBLE IDs. 
+- The T2T version is not annoatted and updated as much as the GRCH38, which is used by most databases, aligners and diagnostic labs. 
+
+I have found other resources of the T2T with all the annotation files
+
+- The github project [link](https://github.com/marbl/CHM13)
+- The UCSC genome server of the T2T-CHM13 v2.0/hs1 and other annotations [link](https://hgdownload.soe.ucsc.edu/downloads.html#human)
 
 ```bash
 # download references 
@@ -294,7 +312,9 @@ GNU-parallel is also discussed [here](https://www.biostars.org/p/63816/) <br>
 The SRA-explorer tool [here](https://sra-explorer.info/) can also generate a bash script to download multiple SRA files in parallel using prefetch and fasterq-dump.
 
 ### Make STAR/Salmon index for RNA-seq alignment 
-The scripts below will be used for making the STAR and Salmon indices at `${HOME}/cancer_project/ngs_preprocess/reference` directory in the respective subfolders. <br>
+
+The scripts below will be used for making the STAR and Salmon indices at `${HOME}/cancer_project/ngs_preprocess/reference` directory in the respective subfolders.
+
 For STAR, the choice below will result in an index where STAR can map to transcriptome and genome simultaneously, and will select the best alignment. The gtf file is used to build the splice junction database and the option `--sjdbOverhang` will not be used during mapping but only during the genomeGenerate step. In the manual, genomeDir contents is described as genome sequence + suffix arrays + splice junction coordinates + transcript/gene information.
 
 ```bash
@@ -355,6 +375,7 @@ rsem-prepare-reference --gtf "${HOME}/cancer_project/ngs_preprocess/reference/Ho
 ```
 
 ### Quality control of the FASTQ files (FASTQC and MULTIQC)
+
 I will use directly the FastQC command over all the linked FASTQ.gz file in the input directory. A specific note here. The `&` indicates to run asynchronously in the background and shell does not wait to finish. So, this means that many Fastq files will be passed to the program. That i swhy we need to put a maximum 8 files per batch.
 
 ```bash
@@ -378,6 +399,7 @@ Some technicalities in FASTQ
 
 
 ### Trimming with FastP 
+
 FastP supports parallelization and runs with 3-4 cores to speed up the trimming process. Here I have some notes on the FastP tool commands 
 - There are 2 inputs for pair-end data: `-i for Read1 and -I for Read2`
 - The output trimmed files are specified with `-o` and `-O` for Read1 and Read2 respectively. The name of the output files can be specified directly.
@@ -431,6 +453,7 @@ fastp \
 ```
 
 #### Options used in Trimmomatic (for comparison)
+
 Trimmomatic is another tool used for trimming FASTQ files. This tool is slower than FastP and requires manual input of the adapter sequences. FastP offers the choice of manual input, however, it uses an algorith to locate the adapters in case there is no input. Some options used in Trimmomatic are:
 The reading and trailing options remove bases at the start 5' end and at the 3' end of the reads before the index/adapter if teir quality is below a certain threshold. 
 - `LEADING:3` : removes leading bases with quality below 3.
@@ -439,6 +462,7 @@ The reading and trailing options remove bases at the start 5' end and at the 3' 
 - `SLIDINGWINDOW:4:20` : performs sliding window trimming, cutting once the average quality within the window of 4bps falls below 20. The window size is 4 bases. For long reads this is useful to remove low-quality ends. So, many reads will be trimmed into smaller lengths and of those only the ones that are above 36bp will be retained.
 
 ### Pseudo-alignment and Quantification with Salmon
+
 After trimming the FASTQ files, I will use Salmon to perform quasi-mapping and quantification of the reads to the transcriptome. The important options used in Salmon quant are:
 
 A simple bash script for one paired-end sample is shown below. I also timed the process:
@@ -483,6 +507,7 @@ echo "Total elapsed time: $elapsed seconds"
 
 
 #### Notes on alignment rates in Salmon and reasons 
+
 The sample `SRR15852393` with **high GC-content and increased duplication levels and overepresented sequences** gad an alignment rate of 10% only. So salmon could not quasi-map mosty of the reads or I made some mistake in the trimming or indexing. I will re-check everything again.
 - For paired-end sample of 2x28million reads with around 110bp length after trimming, and using decoy transcriptome index, gc-bias corrections, sequence bias correction, and bootsrapping, the alignment rate was only 12% and it took around 16 minutes with 7 threads. 
 - It seems that the distribution of the read lengths affect the alignment rate as well. For that sample the distro was bimodal. If many 1/3 of reads are below 75bp after trimming, then using k=31 for the index could affect the alignment rate.
@@ -512,22 +537,25 @@ grep -r "percent" ${HOME}/cancer_project/ngs_preprocess/5a_salmonout/
 
 # check other info related to alignment 
 grep -r -A 7 "num_processed" ${HOME}/cancer_project/ngs_preprocess/5a_salmonout/
-
-
 ```
+
 some references to check for this issue:
 
-
 ### Mapping to genome with STAR aligner 
+
 STAR always map to the genome and transcriptome simultaneously if the index was built with gtf annotation. It selects the best alignment for each read. STAR first aligns reads to entire genome, and only then searches for concordance between alignments and transcripts. This allows for discovery of splice variant in contrast to Salmon where every read is force to a coding region and much more strict constraints are applied to pseudo-alignemnt. <br>
 
 Regardless of transcriptome, STAR projects the genome alignemnts to the transcriptome with the option `--quantMode TranscriptomeSAM`. The output is a BAM file with alignments projected to the transcriptome. This BAM file can be used for quantification with RSEM. One important question is what do you need the BAM file for? Depending on the downstream analysis, the BAM file must be sorted or unsorted. Here are some notes:
-- For example, if I want to use Qualimap for QC of the alignments, the BAM file must be sorted.
+
+- For example, if I want to use Qualimap for QC of the alignments, the BAM file must be name sorted with samtools.
 - For counting with featureCounts, the BAM file can be unsorted and should be genome-aligned (not transcriptome projected).
 - For visualization in IGV, the BAM file must be sorted and indexed with samtools index.
-- For variant calling with GATK, the BAM file must be sorted, indexed and marked for duplicates, the recalibration steps must follow.
+- For variant calling with GATK, the BAM file must be sorted, indexed and marked for duplicates, then recalibration steps must follow.
 
 Some Notes on the command:
+
+- The `--runThreadN` option specifies the number of threads to use for parallel processing.
+- The `--genomeDir` option specifies the path to the STAR genome index directory created
 - The `--readFilesCommand zcat` option is used to read compressed FASTQ files directly.
 - The `--outFileNamePrefix` option specifies the prefix for all output files generated by STAR for that sample. If the basename directory does not exist it will not be created automatically. For example, if the prefix is `path/to/output/basename_`, all the output files will start with that prefix. If you want a directory like `path/to/output/basename/basename_`, you need to create it `mkdir path/to/output/basename/` before running the STAR command.
 
@@ -546,16 +574,21 @@ STAR --runThreadN 22 \
 --outSAMtype BAM SortedByCoordinate \
 --quantMode TranscriptomeSAM GeneCounts
 ```
+
 The output files from STAR are:
+
 - A per sample folder in the `3_mapping` directory with the name of the sample.
 - Each sample folder contains multiple output files from STARand each folder contains the names of the sample as prefix. 
 - Aligned.sortedByCoord.out.bam : BAM file sorted by coordinate with genome alignments.
 - Aligned.toTranscriptome.out.bam : BAM file with alignments projected to the transcriptome for quantification.
 - Log.final.out : summary of mapping statistics.
 
+Informations about computer resources:
 
+- For a sample with 30 million paired-end reads of 2x110bp length after trimming, STAR took around 4 minutes with 22 threads and used around 31GB of RAM. The index was built with splice junctions from GTF annotation.
 
 ### Post Alignment QC (RSeQC, Qualimap, MultiQC)
+
 Starting with RSeQC. I will need the BAM file of each sample sorted by coordinate. Furthermore, I will need the gene model (.gtf file) in bed format. I have already done the conversion in the first section. Furthermore, I will need a subset of the genes for the gene body coverage function. The file I will uise is the one available from RSeQC.
 
 ```bash

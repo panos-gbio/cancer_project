@@ -29,6 +29,7 @@ rsem_calc() {
     fi
 
     # I need to create output directory for each sample before running rsem
+    # Rsem like STAR adds a sample prefix to the output files
    
     rsem-calculate-expression --paired-end --alignments \
     --strandedness reverse \
